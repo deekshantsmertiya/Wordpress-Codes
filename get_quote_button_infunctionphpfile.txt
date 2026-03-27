@@ -1,0 +1,197 @@
+HelloTheme\Theme::instance();
+// ✅ 1. Show "Read More" on Shop/Category Pages
+if (!function_exists('custom_replace_add_to_cart_on_archive')) {
+    function custom_replace_add_to_cart_on_archive($button, $product) {
+        if (is_shop() || is_product_category()) {
+            return '<a href="' . get_permalink($product->get_id()) . '" class="read-more-button">Read More</a>';
+        }
+        return $button;
+    }
+    add_filter('woocommerce_loop_add_to_cart_link', 'custom_replace_add_to_cart_on_archive', 15, 2);
+}
+
+// ✅ 2. Shortcode for "Get Quote" on Single Product Page
+function get_quote_button_shortcode() {
+    global $product;
+    if (!$product || !is_product()) return '';
+    return '<a href="#" class="get-quote-button" data-product-id="' . esc_attr($product->get_id()) . '">Enquiry Now</a>';
+}
+add_shortcode('get_quote_button', 'get_quote_button_shortcode');
+
+// ✅ 3. CSS for Both Buttons
+function add_get_quote_button_css() {
+    ?>
+    <style>
+        .get-quote-button {
+            display: inline-block;
+            background: #7E5C43;
+            color: #ffffff;
+            padding: 8px 12px;
+            text-align: center;
+            border-radius: 0px;
+            text-decoration: none;
+            margin-top: 15px;
+            font-size: 14px;
+            transition: 0.3s ease;
+        }
+        .get-quote-button:hover {
+            opacity: 0.9;
+        }
+        .read-more-button {
+            display: inline-block;
+            background: #5DB812;
+            color: #ffffff;
+            padding: 8px 12px;
+            border-radius: 30px;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        @media only screen and (max-width: 768px) {
+            .get-quote-button, .read-more-button {
+                display: block;
+                width: 100%;
+                text-align: center;
+                margin: 10px 0;
+                font-size: 16px;
+                padding: 12px 0;
+            }
+        }
+    </style>
+    <?php
+}
+add_action('wp_head', 'add_get_quote_button_css');
+
+// ✅ 4. Popup + JavaScript + Nonce
+function add_quote_popup_script() {
+    $ajax_nonce = wp_create_nonce('submit_quote_form_action');
+    ?>
+    <script>
+    document.addEventListener("DOMContentLoaded", function () {
+        document.querySelectorAll(".get-quote-button").forEach(function (button) {
+            button.addEventListener("click", function (event) {
+                event.preventDefault();
+                var productId = this.getAttribute("data-product-id");
+                document.getElementById("quoteProductID").value = productId;
+                document.getElementById("quoteForm").style.display = "block";
+            });
+        });
+
+        document.getElementById("closeForm").addEventListener("click", function () {
+            document.getElementById("quoteForm").style.display = "none";
+        });
+
+        document.getElementById("quoteFormContent").addEventListener("submit", function (event) {
+            event.preventDefault();
+            var formData = new FormData(this);
+
+            fetch('<?php echo admin_url("admin-ajax.php"); ?>', {
+                method: 'POST',
+                body: formData
+            }).then(response => response.text())
+              .then(data => {
+                if (data.trim() === "success") {
+                    alert("Form submitted successfully!");
+                    document.getElementById("quoteForm").style.display = "none";
+                    document.getElementById("quoteFormContent").reset();
+                } else {
+                    alert("Error: " + data.trim());
+                }
+            }).catch(error => console.error('Error:', error));
+        });
+    });
+    </script>
+
+    <!-- Popup Form -->
+    <div id="quoteForm" class="form-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:white; padding:20px; box-shadow:0 0 10px rgba(0,0,0,0.2); z-index:1000;">
+        <form id="quoteFormContent" method="POST">
+            <h2>Get a Quote</h2>
+            <input type="hidden" name="action" value="submit_quote_form">
+            <input type="hidden" name="product_id" id="quoteProductID">
+            <input type="hidden" name="quote_form_nonce" value="<?php echo $ajax_nonce; ?>">
+
+            <label>Name:</label>
+            <input type="text" name="name" required>
+
+            <label>Email:</label>
+            <input type="email" name="email" required>
+
+            <label>Message:</label>
+            <textarea name="message" rows="4" style="width:100%; padding:8px;" placeholder="Enter your message..."></textarea>
+
+            <button type="submit" style="background: green; color: white; padding: 10px; border: none;">Submit</button>
+            <button type="button" id="closeForm" style="background: red; color: white; padding: 10px; border: none;">Close</button>
+        </form>
+    </div>
+    <?php
+}
+add_action('wp_footer', 'add_quote_popup_script');
+
+// ✅ 5. Handle Form Submission via AJAX
+function handle_quote_form_submission() {
+    if (!isset($_POST['quote_form_nonce']) || !wp_verify_nonce($_POST['quote_form_nonce'], 'submit_quote_form_action')) {
+        echo "nonce_failure";
+        wp_die();
+    }
+
+    if (isset($_POST['name'], $_POST['email'])) {
+        $name = sanitize_text_field($_POST['name']);
+        $email = sanitize_email($_POST['email']);
+        $message = isset($_POST['message']) ? sanitize_textarea_field($_POST['message']) : '';
+
+        $product_info = '';
+        if (!empty($_POST['product_id'])) {
+            $product_id = intval($_POST['product_id']);
+            $product = wc_get_product($product_id);
+            if ($product) {
+                $product_name = $product->get_name();
+                $product_url = get_permalink($product_id);
+                $product_info = "Product: $product_name\nProduct URL: $product_url\n\n";
+            }
+        }
+
+        $to = "info@royalartexports.com";
+        $subject = "New Quote Request";
+        $body = $product_info . "Name: $name\nEmail: $email\nMessage: $message";
+        $headers = array('Content-Type: text/plain; charset=UTF-8');
+
+        if (wp_mail($to, $subject, $body, $headers)) {
+            echo "success";
+        } else {
+            echo "error";
+        }
+    } else {
+        echo "missing_fields";
+    }
+
+    wp_die();
+}
+add_action('wp_ajax_submit_quote_form', 'handle_quote_form_submission');
+add_action('wp_ajax_nopriv_submit_quote_form', 'handle_quote_form_submission');
+
+// 🔍 Enable search by product name and SKU
+function enable_search_by_sku_and_title( $search, $query ) {
+    global $wpdb;
+
+    if ( is_admin() || !$query->is_main_query() || !$query->is_search() ) {
+        return $search;
+    }
+
+    $search_term = $query->get('s');
+    if ( empty($search_term) ) return $search;
+
+    $search = "
+        AND (
+            {$wpdb->posts}.post_title LIKE '%" . esc_sql( $search_term ) . "%'
+            OR {$wpdb->posts}.ID IN (
+                SELECT post_id FROM {$wpdb->postmeta}
+                WHERE meta_key = '_sku'
+                AND meta_value LIKE '%" . esc_sql( $search_term ) . "%'
+            )
+        )
+    ";
+
+    return $search;
+}
+add_filter( 'posts_search', 'enable_search_by_sku_and_title', 10, 2 );
+
+// add a shortcode in the product specific name [get_quote_button]

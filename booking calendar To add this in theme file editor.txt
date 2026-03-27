@@ -1,0 +1,379 @@
+// ==========================================
+// 📅 BOOKING CALENDAR - COMPLETE CODE
+// Copy ALL of this to the END of functions.php
+// ==========================================
+
+// Register Shortcode
+add_shortcode('product_booking_calendar', 'pbc_show_calendar');
+function pbc_show_calendar($atts) {
+    global $product;
+    
+    if (!$product) {
+        $product = wc_get_product(get_the_ID());
+    }
+    
+    if (!$product) {
+        return '<div style="padding:20px;color:red;">Calendar: Product not found</div>';
+    }
+    
+    $product_id = $product->get_id();
+    $product_name = $product->get_name();
+    $booked_dates = get_post_meta($product_id, '_booked_dates', true);
+    
+    if (!is_array($booked_dates)) {
+        $booked_dates = array();
+    }
+    
+    $nonce = wp_create_nonce('pbc_nonce');
+    
+    ob_start();
+    ?>
+    <div class="pbc-wrap">
+        <h3>Check Availability</h3>
+        <div class="pbc-legend">
+            <span><span class="dot avail"></span> Available</span>
+            <span><span class="dot booked"></span> Booked</span>
+            <span><span class="dot select"></span> Selected</span>
+        </div>
+        <div class="pbc-cal" data-id="<?php echo $product_id; ?>" data-name="<?php echo esc_attr($product_name); ?>" data-booked='<?php echo esc_attr(json_encode($booked_dates)); ?>'></div>
+        <div class="pbc-info" style="display:none;"><strong>Selected:</strong> <span class="pbc-list"></span></div>
+        <button type="button" class="pbc-btn" disabled>Enquiry Now</button>
+    </div>
+    
+    <style>
+    .pbc-wrap{max-width:600px;margin:30px auto;padding:30px;background:#fff;border-radius:12px;box-shadow:0 5px 25px rgba(0,0,0,0.3)}
+    .pbc-wrap h3{margin:0 0 20px;font-size:26px;font-weight:700;color:#000;text-align:center}
+    .pbc-legend{display:flex;justify-content:center;gap:20px;margin-bottom:20px;flex-wrap:wrap}
+    .pbc-legend span{display:flex;align-items:center;gap:8px;color:#000;font-size:14px;font-weight:600}
+    .dot{width:20px;height:20px;border-radius:4px;border:2px solid #333;display:inline-block}
+    .dot.avail{background:#fff;border-color:#28a745}
+    .dot.booked{background:#f00;border-color:#f00}
+    .dot.select{background:#28a745;border-color:#28a745}
+    .pbc-nav{display:flex;justify-content:space-between;align-items:center;padding:12px;background:#f0f0f0;border-radius:8px;margin-bottom:15px}
+    .pbc-nav h4{margin:0;font-size:18px;font-weight:700;color:#000}
+    .pbc-nav button{padding:8px 15px;background:#007bff;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:600;font-size:14px}
+    .pbc-nav button:hover{background:#0056b3}
+    .pbc-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+    .pbc-hdr{text-align:center;font-weight:700;padding:10px 4px;background:#343a40;color:#fff;font-size:13px;border-radius:4px}
+    .pbc-day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border:2px solid #ddd;border-radius:6px;background:#fff;color:#000;font-size:15px;font-weight:700;cursor:pointer;transition:all 0.2s;min-height:50px}
+    .pbc-day:hover:not(.booked):not(.past):not(.empty){background:#e7f5ff;border-color:#007bff;transform:scale(1.05)}
+    .pbc-day.empty{background:transparent;border:none;cursor:default}
+    .pbc-day.booked{background:#f00!important;border-color:#f00!important;color:#fff!important;cursor:not-allowed}
+    .pbc-day.select{background:#28a745!important;border-color:#28a745!important;color:#fff!important}
+    .pbc-day.past{background:#f5f5f5;color:#ccc!important;cursor:not-allowed}
+    .pbc-info{margin:15px 0;padding:15px;background:#d4edda;border:2px solid #28a745;border-radius:6px;color:#155724;font-size:15px;font-weight:600}
+    .pbc-btn{width:100%;padding:18px;background:#7E5C43;color:#fff;border:none;border-radius:8px;font-size:18px;font-weight:700;cursor:pointer;text-transform:uppercase;transition:all 0.3s}
+    .pbc-btn:hover:not(:disabled){background:#6a4d38;transform:translateY(-2px)}
+    .pbc-btn:disabled{background:#ccc;cursor:not-allowed;opacity:0.6}
+    .pbc-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:999998}
+    .pbc-modal{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;padding:35px;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,0.4);z-index:999999;max-width:500px;width:90%}
+    .pbc-close{position:absolute;top:15px;right:20px;font-size:30px;cursor:pointer;color:#666}
+    .pbc-close:hover{color:#000}
+    .pbc-modal h2{margin:0 0 20px;color:#333;font-size:24px}
+    .pbc-modal-prod{margin-bottom:20px;padding:12px;background:#f8f9fa;border-radius:6px;color:#333}
+    .pbc-field{margin-bottom:15px}
+    .pbc-field label{display:block;margin-bottom:6px;font-weight:600;color:#333}
+    .pbc-field input,.pbc-field textarea{width:100%;padding:12px;border:2px solid #ddd;border-radius:6px;font-size:15px;box-sizing:border-box}
+    .pbc-field input:focus,.pbc-field textarea:focus{outline:none;border-color:#28a745}
+    .pbc-submit{width:100%;padding:15px;background:#28a745;color:#fff;border:none;border-radius:6px;font-size:17px;font-weight:700;cursor:pointer}
+    .pbc-submit:hover{background:#218838}
+    .pbc-msg{margin-top:15px;padding:12px;border-radius:6px;display:none}
+    .pbc-msg.success{background:#d4edda;color:#155724}
+    .pbc-msg.error{background:#f8d7da;color:#721c24}
+    @media(max-width:768px){.pbc-wrap{padding:20px}.pbc-day{min-height:45px;font-size:13px}.pbc-wrap h3{font-size:22px}}
+    </style>
+    
+    <script>
+    jQuery(document).ready(function($){
+        function Cal(el){
+            this.el=$(el);
+            this.id=this.el.data('id');
+            this.name=this.el.data('name');
+            this.booked=JSON.parse(this.el.attr('data-booked')||'[]');
+            this.selected=[];
+            this.month=new Date().getMonth();
+            this.year=new Date().getFullYear();
+            this.render();
+        }
+        Cal.prototype.render=function(){
+            var h='<div class="pbc-nav"><button type="button" class="prev">← Prev</button><h4 class="title"></h4><button type="button" class="next">Next →</button></div><div class="pbc-grid">'+this.headers()+this.days()+'</div>';
+            this.el.html(h);
+            this.updateTitle();
+            this.bind();
+            this.updateSel();
+        };
+        Cal.prototype.headers=function(){
+            var d=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],h='';
+            for(var i=0;i<7;i++)h+='<div class="pbc-hdr">'+d[i]+'</div>';
+            return h;
+        };
+        Cal.prototype.days=function(){
+            var f=new Date(this.year,this.month,1).getDay();
+            var t=new Date(this.year,this.month+1,0).getDate();
+            var today=new Date();today.setHours(0,0,0,0);
+            var h='';
+            for(var i=0;i<f;i++)h+='<div class="pbc-day empty"></div>';
+            for(var d=1;d<=t;d++){
+                var ds=this.year+'-'+String(this.month+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+                var dd=new Date(this.year,this.month,d);dd.setHours(0,0,0,0);
+                var c='pbc-day';
+                if(this.booked.indexOf(ds)!==-1)c+=' booked';
+                else if(this.selected.indexOf(ds)!==-1)c+=' select';
+                if(dd<today)c+=' past';
+                h+='<div class="'+c+'" data-date="'+ds+'">'+d+'</div>';
+            }
+            return h;
+        };
+        Cal.prototype.updateTitle=function(){
+            var m=['January','February','March','April','May','June','July','August','September','October','November','December'];
+            this.el.find('.title').text(m[this.month]+' '+this.year);
+        };
+        Cal.prototype.fmt=function(ds){
+            var p=ds.split('-');
+            var d=new Date(p[0],p[1]-1,p[2]);
+            var m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            return d.getDate()+' '+m[d.getMonth()];
+        };
+        Cal.prototype.updateSel=function(){
+            var w=this.el.closest('.pbc-wrap');
+            var i=w.find('.pbc-info');
+            var l=w.find('.pbc-list');
+            var b=w.find('.pbc-btn');
+            if(this.selected.length>0){
+                var self=this;
+                var f=this.selected.map(function(d){return self.fmt(d);});
+                l.text(f.join(', '));
+                i.show();
+                b.prop('disabled',false);
+            }else{
+                i.hide();
+                b.prop('disabled',true);
+            }
+        };
+        Cal.prototype.toggle=function(ds){
+            var idx=this.selected.indexOf(ds);
+            if(idx!==-1)this.selected.splice(idx,1);
+            else this.selected.push(ds);
+            this.render();
+        };
+        Cal.prototype.bind=function(){
+            var self=this;
+            this.el.find('.prev').on('click',function(){
+                self.month--;
+                if(self.month<0){self.month=11;self.year--;}
+                self.render();
+            });
+            this.el.find('.next').on('click',function(){
+                self.month++;
+                if(self.month>11){self.month=0;self.year++;}
+                self.render();
+            });
+            this.el.find('.pbc-day:not(.booked):not(.past):not(.empty)').on('click',function(){
+                var d=$(this).attr('data-date');
+                if(d)self.toggle(d);
+            });
+        };
+        
+        var cals={};
+        $('.pbc-cal').each(function(){
+            var id=$(this).data('id');
+            cals[id]=new Cal(this);
+        });
+        
+        $(document).on('click','.pbc-btn',function(){
+            var w=$(this).closest('.pbc-wrap');
+            var cal=w.find('.pbc-cal');
+            var id=cal.data('id');
+            var name=cal.data('name');
+            var c=cals[id];
+            if(!c||c.selected.length===0){alert('Select dates first!');return;}
+            var f=c.selected.map(function(d){return c.fmt(d);});
+            $('#pbc-name').text(name);
+            $('#pbc-dates').val(f.join(', '));
+            $('#pbc-id').val(id);
+            $('.pbc-overlay,.pbc-modal').show();
+        });
+        
+        $('.pbc-close,.pbc-overlay').on('click',function(){
+            $('.pbc-overlay,.pbc-modal').hide();
+        });
+        
+        $('#pbc-form').on('submit',function(e){
+            e.preventDefault();
+            var form=$(this);
+            var btn=form.find('.pbc-submit');
+            var msg=form.find('.pbc-msg');
+            btn.prop('disabled',true).text('Sending...');
+            msg.hide();
+            $.post('<?php echo admin_url("admin-ajax.php"); ?>',{
+                action:'pbc_enquiry',
+                nonce:'<?php echo $nonce; ?>',
+                name:form.find('[name="name"]').val(),
+                email:form.find('[name="email"]').val(),
+                phone:form.find('[name="phone"]').val(),
+                message:form.find('[name="message"]').val(),
+                product_id:form.find('[name="product_id"]').val(),
+                product_name:$('#pbc-name').text(),
+                dates:form.find('[name="dates"]').val()
+            },function(r){
+                if(r.success){
+                    msg.removeClass('error').addClass('success').text('Sent!').show();
+                    form[0].reset();
+                    setTimeout(function(){
+                        $('.pbc-overlay,.pbc-modal').hide();
+                        for(var id in cals){cals[id].selected=[];cals[id].render();}
+                    },2000);
+                }else{
+                    msg.removeClass('success').addClass('error').text('Error!').show();
+                }
+            }).fail(function(){
+                msg.removeClass('success').addClass('error').text('Network error!').show();
+            }).always(function(){
+                btn.prop('disabled',false).text('Submit Enquiry');
+            });
+        });
+    });
+    </script>
+    
+    <div class="pbc-overlay"></div>
+    <div class="pbc-modal">
+        <span class="pbc-close">&times;</span>
+        <h2>Send Enquiry</h2>
+        <div class="pbc-modal-prod"><strong>Product:</strong> <span id="pbc-name"></span></div>
+        <form id="pbc-form">
+            <input type="hidden" name="product_id" id="pbc-id">
+            <input type="hidden" name="dates" id="pbc-dates">
+            <div class="pbc-field"><label>Name *</label><input type="text" name="name" required></div>
+            <div class="pbc-field"><label>Email *</label><input type="email" name="email" required></div>
+            <div class="pbc-field"><label>Phone *</label><input type="tel" name="phone" required></div>
+            <div class="pbc-field"><label>Message</label><textarea name="message" rows="4"></textarea></div>
+            <button type="submit" class="pbc-submit">Submit Enquiry</button>
+            <div class="pbc-msg"></div>
+        </form>
+    </div>
+    <?php
+    return ob_get_clean();
+}
+
+// Admin Meta Box
+add_action('add_meta_boxes','pbc_add_box');
+function pbc_add_box(){
+    add_meta_box('pbc_box','📅 Booking Dates','pbc_box_html','product','side','high');
+}
+
+function pbc_box_html($post){
+    wp_nonce_field('pbc_save','pbc_n');
+    $b=get_post_meta($post->ID,'_booked_dates',true);
+    if(!is_array($b))$b=array();
+    ?>
+    <p><strong>Click to toggle:</strong></p>
+    <div id="pbc-adm"></div>
+    <input type="hidden" name="booked_dates" id="pbc-data" value='<?php echo esc_attr(json_encode($b)); ?>'>
+    <style>
+    #pbc-adm{font-size:11px}
+    .pbc-adm-hdr{display:flex;justify-content:space-between;margin-bottom:8px;align-items:center}
+    .pbc-adm-hdr button{padding:4px 8px;background:#0073aa;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:11px}
+    .pbc-adm-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+    .pbc-adm-cell{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border:1px solid #ddd;cursor:pointer;background:#fff;font-size:10px}
+    .pbc-adm-cell:hover:not(.past){background:#ffe6e6}
+    .pbc-adm-cell.booked{background:#dc3232;color:#fff;font-weight:bold}
+    .pbc-adm-cell.past{background:#f5f5f5;color:#ccc;cursor:not-allowed}
+    .pbc-adm-cell.empty{background:transparent;border:none;cursor:default}
+    .pbc-adm-lbl{text-align:center;font-weight:bold;padding:4px 2px;background:#f0f0f0;font-size:9px}
+    </style>
+    <script>
+    jQuery(document).ready(function($){
+        var cal={
+            el:$('#pbc-adm'),
+            input:$('#pbc-data'),
+            dates:JSON.parse($('#pbc-data').val()||'[]'),
+            month:new Date().getMonth(),
+            year:new Date().getFullYear(),
+            render:function(){
+                var h='<div class="pbc-adm-hdr"><button type="button" class="prev">←</button><span class="title"></span><button type="button" class="next">→</button></div><div class="pbc-adm-grid">';
+                var d=['S','M','T','W','T','F','S'];
+                for(var i=0;i<7;i++)h+='<div class="pbc-adm-lbl">'+d[i]+'</div>';
+                var f=new Date(this.year,this.month,1).getDay();
+                var t=new Date(this.year,this.month+1,0).getDate();
+                var today=new Date();today.setHours(0,0,0,0);
+                for(var i=0;i<f;i++)h+='<div class="pbc-adm-cell empty"></div>';
+                for(var day=1;day<=t;day++){
+                    var ds=this.year+'-'+String(this.month+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+                    var dd=new Date(this.year,this.month,day);dd.setHours(0,0,0,0);
+                    var c='pbc-adm-cell';
+                    if(this.dates.indexOf(ds)!==-1)c+=' booked';
+                    if(dd<today)c+=' past';
+                    h+='<div class="'+c+'" data-date="'+ds+'">'+day+'</div>';
+                }
+                h+='</div>';
+                this.el.html(h);
+                var m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                this.el.find('.title').text(m[this.month]+' '+this.year);
+                this.bind();
+            },
+            bind:function(){
+                var self=this;
+                this.el.find('.prev').on('click',function(e){
+                    e.preventDefault();
+                    self.month--;
+                    if(self.month<0){self.month=11;self.year--;}
+                    self.render();
+                });
+                this.el.find('.next').on('click',function(e){
+                    e.preventDefault();
+                    self.month++;
+                    if(self.month>11){self.month=0;self.year++;}
+                    self.render();
+                });
+                this.el.find('.pbc-adm-cell:not(.past):not(.empty)').on('click',function(){
+                    var d=$(this).attr('data-date');
+                    if(!d)return;
+                    var idx=self.dates.indexOf(d);
+                    if(idx!==-1)self.dates.splice(idx,1);
+                    else self.dates.push(d);
+                    self.input.val(JSON.stringify(self.dates));
+                    self.render();
+                });
+            }
+        };
+        if($('#pbc-adm').length)cal.render();
+    });
+    </script>
+    <?php
+}
+
+// Save Meta Box
+add_action('save_post','pbc_save_box');
+function pbc_save_box($post_id){
+    if(!isset($_POST['pbc_n'])||!wp_verify_nonce($_POST['pbc_n'],'pbc_save'))return;
+    if(defined('DOING_AUTOSAVE')&&DOING_AUTOSAVE)return;
+    if(!current_user_can('edit_post',$post_id))return;
+    if(isset($_POST['booked_dates'])){
+        $d=json_decode(stripslashes($_POST['booked_dates']),true);
+        update_post_meta($post_id,'_booked_dates',$d);
+    }
+}
+
+// Handle Enquiry
+add_action('wp_ajax_pbc_enquiry','pbc_do_enquiry');
+add_action('wp_ajax_nopriv_pbc_enquiry','pbc_do_enquiry');
+function pbc_do_enquiry(){
+    if(!isset($_POST['nonce'])||!wp_verify_nonce($_POST['nonce'],'pbc_nonce')){
+        wp_send_json_error();
+    }
+    $name=sanitize_text_field($_POST['name']);
+    $email=sanitize_email($_POST['email']);
+    $phone=sanitize_text_field($_POST['phone']);
+    $msg=sanitize_textarea_field($_POST['message']);
+    $prod=sanitize_text_field($_POST['product_name']);
+    $dates=sanitize_text_field($_POST['dates']);
+    $to="info@royalartexports.com";
+    $subj="Booking Enquiry - ".$prod;
+    $body="New enquiry:\n\nProduct: ".$prod."\nDates: ".$dates."\n\nName: ".$name."\nEmail: ".$email."\nPhone: ".$phone."\n\nMessage:\n".$msg;
+    $hdrs=array('Content-Type: text/plain; charset=UTF-8');
+    if(wp_mail($to,$subj,$body,$hdrs)){
+        wp_send_json_success();
+    }else{
+        wp_send_json_error();
+    }
+}
